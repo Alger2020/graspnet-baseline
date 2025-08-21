@@ -26,16 +26,22 @@ class GraspNetDataset(Dataset):
                  remove_outlier=False, remove_invisible=True, augment=False, load_label=True):
         assert(num_points<=50000)
         self.root = root
-        self.split = split
-        self.num_points = num_points
-        self.remove_outlier = remove_outlier
-        self.remove_invisible = remove_invisible
-        self.valid_obj_idxs = valid_obj_idxs
-        self.grasp_labels = grasp_labels
-        self.camera = camera
-        self.augment = augment
-        self.load_label = load_label
+        self.split = split                                    # 数据集分割：'train', 'test', 'test_seen'等
+        self.num_points = num_points                          # 采样的点云数量 (≤20000)
+        self.remove_outlier = remove_outlier                  # 是否移除异常点
+        self.remove_invisible = remove_invisible              # 是否移除不可见点
+        self.valid_obj_idxs = valid_obj_idxs                  # 有效物体索
+        self.grasp_labels = grasp_labels                      # 抓取标签
+        self.camera = camera                                  # 相机类型('kinect'等)
+        self.augment = augment                                # 是否数据增强
+        self.load_label = load_label                          # 是否加载标签
         self.collision_labels = {}
+
+# 训练集: scene_0000 ~ scene_0099 (100个场景)
+# 测试集: scene_0100 ~ scene_0189 (90个场景)
+# test_seen: scene_0100 ~ scene_0129
+# test_similar: scene_0130 ~ scene_0159
+# test_novel: scene_0160 ~ scene_0189
 
         if split == 'train':
             self.sceneIds = list( range(100) )
@@ -238,7 +244,7 @@ class GraspNetDataset(Dataset):
             cloud_sampled, object_poses_list = self.augment_data(cloud_sampled, object_poses_list)
         
         ret_dict = {}
-        ret_dict['point_clouds'] = cloud_sampled.astype(np.float32)
+        ret_dict['point_clouds'] = cloud_sampled.astype(np.float32)    
         ret_dict['cloud_colors'] = color_sampled.astype(np.float32)
         ret_dict['objectness_label'] = objectness_label.astype(np.int64)
         ret_dict['object_poses_list'] = object_poses_list
