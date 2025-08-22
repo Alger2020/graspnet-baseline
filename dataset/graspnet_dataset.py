@@ -44,7 +44,7 @@ class GraspNetDataset(Dataset):
 # test_novel: scene_0160 ~ scene_0189
 # RGB图像 (rgb/xxxx.png)     (720,1280,3)
 # 深度图像 (depth/xxxx.png)   (720,1280)  每个位置就是深度距离数值
-# 分割标签 (label/xxxx.png)    (720,1280)  每个位置为所属物体id  object_id_list中的值
+# 分割标签 (label/xxxx.png)    (720,1280)  每个位置为所属物体id  object_id_list中的值+1，不是原始的物体id
 # 元数据 (meta/xxxx.mat)   
 ##      mat中有对应每一帧图片中物体的类别索引cls_indexes、物体的位置姿态poses、相机内参intrinsic_matrix、深度图像中的像素值进行标准化或缩放的因子factor_depth。
 ##      poses (3,4,9)3表示每个物体的姿态信息在三维空间中的三个分量；4表示每个姿态的四元数表示法中的四个参数，用于描述物体的旋转；9意味当前帧中对应着场景中的 9 个物体
@@ -194,7 +194,7 @@ class GraspNetDataset(Dataset):
     def get_data_label(self, index):
         color = np.array(Image.open(self.colorpath[index]), dtype=np.float32) / 255.0   #加载RGB图像，转换为浮点数组并归一化到[0,1]范围
         depth = np.array(Image.open(self.depthpath[index]))                             #加载深度图像，保持深度图片原始深度值
-        seg = np.array(Image.open(self.labelpath[index]))                               #加载分割标签图像，每个像素值代表物体ID
+        seg = np.array(Image.open(self.labelpath[index]))                               #加载分割标签图像，每个像素值代表物体ID,这里的物体ID为object_id_list中的+1
         meta = scio.loadmat(self.metapath[index])                                       #加载元数据文件(.mat格式)，包含相机内参、物体姿态等信息
         scene = self.scenename[index]
         try:
@@ -215,7 +215,7 @@ class GraspNetDataset(Dataset):
 
         # 有效点筛选   
         depth_mask = (depth > 0)         #创建布尔掩码，大于零为有效值
-        seg_mask = (seg > 0)              #这个逻辑上有物体哎，分割标签的每个像素值代码物体ID，你这样不是把物体ID等于0的也掩掉了吗。还好没用上
+        seg_mask = (seg > 0)              #这个逻辑上有物体哎，分割标签的每个像素值代码物体ID，你这样不是把物体ID等于0的也掩掉了吗。还好没用上。没有问题，seg中的物体id都加1了，最小物体ID从1开始有效了。
         if self.remove_outlier:
             camera_poses = np.load(os.path.join(self.root, 'scenes', scene, self.camera, 'camera_poses.npy'))  
             align_mat = np.load(os.path.join(self.root, 'scenes', scene, self.camera, 'cam0_wrt_table.npy'))
@@ -257,17 +257,24 @@ class GraspNetDataset(Dataset):
         grasp_offsets_list = []
         grasp_scores_list = []
         grasp_tolerance_list = []
-        for i, obj_idx in enumerate(obj_idxs):
+        for i, obj_idx in enumerate(obj_idxs):   # obj_idxs 场景中物体的类别索引 [9]  9个物体的索引
             if obj_idx not in self.valid_obj_idxs:
-                continue
+                continue                         # 跳过无效物体类别
             if (seg_sampled == obj_idx).sum() < 50:
-                continue
-            object_poses_list.append(poses[:, :, i])
+                continue                        # 跳过点数少于50的物体
+            object_poses_list.append(poses[:, :, i])   #添加物体姿态 (3,4)
             points, offsets, scores, tolerance = self.grasp_labels[obj_idx]
-            collision = self.collision_labels[scene][i] #(Np, V, A, D)
+            collision = self.collision_labels[scene][i] #(Np, V, A, D)  300，12，4代表啥？？？
+            # print("物体姿态的形状:", poses[:, :, i].shape)  # 输出 (3,4)
+            # print("points的形状:", points.shape)      #  (N, 3)        
+            # print("offsets的形状:", offsets.shape)    #  (N,300,12,4, 3)
+            # print("scores的形状:", scores.shape)      #  (N,300,12,4)
+            # print("tolerance的形状:", tolerance.shape) # (N,300,12,4)
 
 
-            # remove invisible grasp points
+            # 不可见抓取点过滤 
+            #计算可见性掩码
+            #过滤所有相关标签
             if self.remove_invisible:
                 visible_mask = remove_invisible_grasp_points(cloud_sampled[seg_sampled==obj_idx], points, poses[:,:,i], th=0.01)
                 points = points[visible_mask]
@@ -276,6 +283,9 @@ class GraspNetDataset(Dataset):
                 tolerance = tolerance[visible_mask]
                 collision = collision[visible_mask]
 
+            #抓取点采样 随机采样抓取点：取1/4数量，最少300个，最多为全部点数
+            #根据采样索引获取各种标签
+            #关键：将有碰撞的抓取点的分数和容差设为0，表示无效抓取
             idxs = np.random.choice(len(points), min(max(int(len(points)/4),300),len(points)), replace=False)
             grasp_points_list.append(points[idxs])
             grasp_offsets_list.append(offsets[idxs])
@@ -291,29 +301,65 @@ class GraspNetDataset(Dataset):
             cloud_sampled, object_poses_list = self.augment_data(cloud_sampled, object_poses_list)
         
         ret_dict = {}                                                          # 数据输出格式     
-        ret_dict['point_clouds'] = cloud_sampled.astype(np.float32)            # 3D点云(N,3)
-        ret_dict['cloud_colors'] = color_sampled.astype(np.float32)
-        ret_dict['objectness_label'] = objectness_label.astype(np.int64)
-        ret_dict['object_poses_list'] = object_poses_list
-        ret_dict['grasp_points_list'] = grasp_points_list
-        ret_dict['grasp_offsets_list'] = grasp_offsets_list
-        ret_dict['grasp_labels_list'] = grasp_scores_list
-        ret_dict['grasp_tolerance_list'] = grasp_tolerance_list
-
+        ret_dict['point_clouds'] = cloud_sampled.astype(np.float32)            # 3D点云(N<20000>,3),N是点云数量，3为xyz
+        ret_dict['cloud_colors'] = color_sampled.astype(np.float32)            # rgb图片(N<20000>,3),N是像素点数量，与点云一一对应，3为颜色通道数
+        ret_dict['objectness_label'] = objectness_label.astype(np.int64)       # 分割标签图像(N<20000>),每个点都是物体标签ID+1
+        ret_dict['object_poses_list'] = object_poses_list                      #物体姿态列表，列表长度为该场景物体数<9>，姿态形状为(3,4)
+        ret_dict['grasp_points_list'] = grasp_points_list                      #抓取点列表长度为<9>,形状为(252,3) 252是单物体抓取点数量，3是xyz坐标
+        ret_dict['grasp_offsets_list'] = grasp_offsets_list                    #抓取偏移列表长度: 9  单个偏移形状: (252, 300, 12, 4, 3)
+        ret_dict['grasp_labels_list'] = grasp_scores_list                      #抓取分数列表长度: 9  单个分数形状: (252, 300, 12, 4)
+        ret_dict['grasp_tolerance_list'] = grasp_tolerance_list                #抓取容差列表长度: 9  单个容差形状: (252, 300, 12, 4)
+        # print("点云形状 (N,3):", ret_dict['point_clouds'].shape)  # 输出 (N, 3)
+        # print("颜色形状:", ret_dict['cloud_colors'].shape)        # 应与点云形状一致
+        # print("物体性标签形状:", ret_dict['objectness_label'].shape)  # 例如 (N,) 或 (N,1)
+        # print("物体姿态列表长度:", len(ret_dict['object_poses_list']))  # 列表长度
+        # if len(ret_dict['object_poses_list']) > 0:
+        #     print("单个物体姿态形状:", ret_dict['object_poses_list'][0].shape)  # 例如 (3,4)
+        # print("抓取点列表长度:", len(ret_dict['grasp_points_list']))  # 列表长度
+        # if len(ret_dict['grasp_points_list']) > 0:
+        #     print("单个抓取点形状:", ret_dict['grasp_points_list'][0].shape)  # 例如 (M,3)
+        # print("抓取偏移列表长度:", len(ret_dict['grasp_offsets_list']))  # 列表长度
+        # if len(ret_dict['grasp_offsets_list']) > 0:
+        #     print("单个偏移形状:", ret_dict['grasp_offsets_list'][0].shape)  # 例如 (M,3)
+        # print("抓取分数列表长度:", len(ret_dict['grasp_labels_list']))  # 列表长度
+        # if len(ret_dict['grasp_labels_list']) > 0:
+        #     print("单个分数形状:", ret_dict['grasp_labels_list'][0].shape)  # 例如 (M,)
+        # print("抓取容差列表长度:", len(ret_dict['grasp_tolerance_list']))  # 列表长度
+        # if len(ret_dict['grasp_tolerance_list']) > 0:
+        #     print("单个容差形状:", ret_dict['grasp_tolerance_list'][0].shape)  # 例如标量或 (M,)            
+            
+            
+            
+            
         return ret_dict
 
 def load_grasp_labels(root):
-    obj_names = list(range(88))
-    valid_obj_idxs = []
-    grasp_labels = {}
+    obj_names = list(range(88))           # 创建0-87的物体索引列表，GraspNet数据集包含88个物体类别
+    valid_obj_idxs = []                    # 存储有效物体索引
+    grasp_labels = {}                      # 字典，存储每个物体的抓取标签
     for i, obj_name in enumerate(tqdm(obj_names, desc='Loading grasping labels...')):
-        if i == 18: continue
-        valid_obj_idxs.append(i + 1) #here align with label png
+        if i == 18: continue                              # 跳过索引18的物体（可能是数据缺失或损坏）
+        valid_obj_idxs.append(i + 1) # 将有效物体索引+1后加入列表（与分割标签对齐）
+        # 加载抓取标签文件 (.npz格式)
         label = np.load(os.path.join(root, 'grasp_label', '{}_labels.npz'.format(str(i).zfill(3))))
+        # 加载容差数据文件 (.npy格式)  
         tolerance = np.load(os.path.join(BASE_DIR, 'tolerance', '{}_tolerance.npy'.format(str(i).zfill(3))))
         grasp_labels[i + 1] = (label['points'].astype(np.float32), label['offsets'].astype(np.float32),
                                 label['scores'].astype(np.float32), tolerance)
+    # {}_labels.npz：包含多个数组的压缩文件
+    # points：抓取点的3D坐标
+    # offsets：抓取偏移向量（6D，包含位置和方向）
+    # scores：抓取质量分数（0-1之间，越高越好）
+    # {}_tolerance.npy：抓取容差信息
+    
+# valid_obj_idxs：有效物体索引列表 [1,2,3,...,17,19,...,88]（跳过18）
+# grasp_labels：字典，键为物体ID，值为该物体的抓取标签元组
 
+# 数据使用可能的流程
+#    训练时：根据分割标签确定场景中的物体
+#    标签匹配：使用物体ID从 grasp_labels 中获取对应的抓取标签
+#    抓取预测：模型学习从点云预测这些抓取标签
+#    质量评估：使用 scores 评估抓取质量，使用 tolerance 处理抓取误差
     return valid_obj_idxs, grasp_labels
 
 def collate_fn(batch):

@@ -2,9 +2,15 @@ import numpy as np
 from PIL import Image
 
 # 方法1：通过PIL读取并转换
-image_pil = Image.open('/T13/jing/graspnet-baseline/dataset/graspnet/scenes/scene_0000/kinect/rgb/0000.png')
+image_pil = Image.open('/T13/jing/graspnet-baseline/dataset/graspnet/scenes/scene_0000/kinect/label/0000.png')
 image_array = np.array(image_pil)  # 转换为NumPy数组
 print("形状（PIL）:", image_array.shape)
+# 打印最大值和最小值
+print("最大值:", np.max(image_array))
+print("最小值:", np.min(image_array))
+# 打印所有出现过的唯一值列表（如果数据量不大）
+unique_values = np.unique(image_array)
+print("出现过的数字列表:", unique_values)
 
 # # 方法2：通过matplotlib读取
 # import matplotlib.pyplot as plt
