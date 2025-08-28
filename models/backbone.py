@@ -25,8 +25,9 @@ class Pointnet2Backbone(nn.Module):
             e.g. 3 for RGB.
     """
     def __init__(self, input_feature_dim=0):
+#input_feature_dim: 输入点云除了xyz坐标外的额外特征维度。默认为0，表示只有xyz。
         super().__init__()
-
+        # SA模块下采样：输入->sa1(2048点，128特征)--》sa2（1024点，256维）--》sa3（256，256）--》（256，256）
         self.sa1 = PointnetSAModuleVotes(
                 npoint=2048,
                 radius=0.04,
@@ -63,9 +64,13 @@ class Pointnet2Backbone(nn.Module):
                 normalize_xyz=True
             )
 
+        # 解码器上采样输出(1024点,256维)
         self.fp1 = PointnetFPModule(mlp=[256+256,256,256])
         self.fp2 = PointnetFPModule(mlp=[256+256,256,256])
 
+#这是一个辅助函数，用于将输入的点云张量 pc 分解为两部分：
+#xyz: 点的坐标，形状 (B, N, 3)。
+#features: 点的附加特征（如RGB），形状 (B, C, N)。transpose是为了匹配PointNet++模块的输入格式。如果只有xyz，则features为None。
     def _break_up_pc(self, pc):
         xyz = pc[..., 0:3].contiguous()
         features = (
@@ -74,6 +79,7 @@ class Pointnet2Backbone(nn.Module):
         )
 
         return xyz, features
+
 
     def forward(self, pointcloud: torch.cuda.FloatTensor, end_points=None):
         r"""
@@ -86,7 +92,10 @@ class Pointnet2Backbone(nn.Module):
                 Point cloud to run predicts on
                 Each point in the point-cloud MUST
                 be formated as (x, y, z, features...)
-
+                
+            输入: pointcloud，形状为 (B, N, 3+C)，其中B是批次大小，N是点数，C是附加特征维度。
+            end_points: 一个字典，用于存储网络各层的中间输出，方便后续模块（如损失函数、解码器）使用。
+            
             Returns
             ----------
             end_points: {XXX_xyz, XXX_features, XXX_inds}
@@ -128,4 +137,4 @@ class Pointnet2Backbone(nn.Module):
         num_seed = end_points['fp2_xyz'].shape[1]
         end_points['fp2_inds'] = end_points['sa1_inds'][:,0:num_seed] # indices among the entire input point clouds
 
-        return features, end_points['fp2_xyz'], end_points
+        return features, end_points['fp2_xyz'], end_points   #features(B,256,1024) xyz(B,1024,3) end_points:包含所有中间结果的字典。

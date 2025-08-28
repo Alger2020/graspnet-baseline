@@ -23,15 +23,29 @@ from label_generation import process_grasp_labels, match_grasp_view_and_label, b
 
 
 class GraspNetStage1(nn.Module):
+    #input_feature_dim=0: 输入点云除xyz外的额外特征维度（0表示只有xyz坐标）
+    #num_view=300: 候选抓取视角数量,就是预定义的每个点的接近向量的视角
+    #backbone: PointNet++骨干网络，提取点云特征
+    #vpmodule: 视角估计模块
     def __init__(self, input_feature_dim=0, num_view=300):
         super().__init__()
         self.backbone = Pointnet2Backbone(input_feature_dim)
         self.vpmodule = ApproachNet(num_view, 256)
 
     def forward(self, end_points):
-        pointcloud = end_points['point_clouds']
-        seed_features, seed_xyz, end_points = self.backbone(pointcloud, end_points)
-        end_points = self.vpmodule(seed_xyz, seed_features, end_points)
+        pointcloud = end_points['point_clouds']  #(B,20000,3)
+        seed_features, seed_xyz, end_points = self.backbone(pointcloud, end_points)#features(B,256,1024) xyz(B,1024,3) end_points:包含所有中间结果的字典。
+        end_points = self.vpmodule(seed_xyz, seed_features, end_points) 
+        
+        #ApproachNet 模块向 end_points 字典添加了以下关键信息：
+
+            #objectness_score: (B, 2, 1024) - 每个种子点的物体性（背景/前景）分数,就是是否可以为抓取点的分数。
+            #view_score: (B, 1024, 300) - 每个种子点在300个预定义视角下的分数。
+            #grasp_top_view_score: (B, 1024) - 每个种子点的最高视角分数。
+            #grasp_top_view_inds: (B, 1024) - 每个种子点最高分视角的索引。
+            #grasp_top_view_xyz: (B, 1024, 3) - 每个种子点最高分视角的3D单位向量。
+            #grasp_top_view_rot: (B, 1024, 3, 3) - 由上述向量生成的旋转矩阵，用于对齐局部坐标系。
+         
         return end_points
 
 
@@ -52,7 +66,7 @@ class GraspNetStage2(nn.Module):
             seed_xyz = end_points['batch_grasp_point']
         else:
             grasp_top_views_rot = end_points['grasp_top_view_rot']
-            seed_xyz = end_points['fp2_xyz']
+            seed_xyz = end_points['fp2_xyz']    # fp2_xyz (B,1024,3)是pointnet输出的对应点云种子坐标
 
         vp_features = self.crop(seed_xyz, pointcloud, grasp_top_views_rot)
         end_points = self.operation(vp_features, end_points)

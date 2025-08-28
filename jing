@@ -1,0 +1,63 @@
+graspnet 笔记
+GraspNet Baseline模型是一个多阶段的深度学习模型，旨在解决机器人抓取任务中的6D抓取位姿估计问题。它主要包括两个阶段：抓取视角估计和抓取姿态生成。以下是对该模型结构的详细分析：
+
+GraspNet整体结构
+
+GraspNet整体结构
+GraspNet 由两个子模块 GraspNetStage1 和 GraspNetStage2 组成。
+view_estimator 是第一阶段，用于抓取视角估计。
+grasp_generator 是第二阶段，用于抓取姿态生成。
+forward 函数中，首先通过 view_estimator 处理输入，然后在训练阶段调用 process_grasp_labels 处理标签数据，最后通过 grasp_generator 生成抓取姿态。
+
+网络解析
+GraspNetStage1: 抓取视角估计
+
+stage1
+GraspNetStage1 包含两个子模块：Pointnet2Backbone 和 ApproachNet。
+Pointnet2Backbone 是一个基于PointNet++的骨干网络，用于从输入的点云中提取特征。
+ApproachNet 模块用于估计抓取视角。
+GraspNetStage2: 抓取姿态生成
+
+stage2
+GraspNetStage2 包含三个子模块：CloudCrop、OperationNet 和 ToleranceNet。
+CloudCrop 用于从点云中提取局部区域特征。
+OperationNet 用于估计抓取操作参数，包括抓取角度和深度。
+ToleranceNet 用于估计抓取的容忍度。
+各个模块分析
+Pointnet2Backbone
+Pointnet2Backbone 是基于PointNet++的点云特征提取模块，输入为点云数据，输出为点的特征和位置。在上采样层中，最终的输出抓取点的数量是由 SA2 层的 npoint 参数决定的。在前向传播过程中，sa2 采样的点数将被传递并最终决定 fp2_xyz 的数量，具体来说，SA2 层的 npoint 参数决定了最终输出的抓取点数量。在整个 GraspNet 模型中，这些点将用于进一步的抓取视角估计和抓取姿态生成。
+返回值：
+features：上采样后的特征用于后续网络进行抓取视角估计和抓取姿态生成。这些特征包含了点云中的局部和全局几何信息，有助于识别适合抓取的点。
+end_points['fp2_xyz']：上采样后的点的坐标用于确定抓取点的位置。这些坐标表示了网络认为最适合进行抓取的点。
+end_points 字典：包含了所有中间结果，如集合抽象层和上采样层的输出。这些结果用于后续处理和调试。
+ApproachNet
+ApproachNet 是用于估计抓取视角的模块，输入为点的特征和位置，输出为抓取视角。主要用于指导 CloudCrop 提取特征，并不直接提供精确的抓取角度。这些视角信息提供了抓取方向的初步估计，后续的抓取配置估计模块（如 OperationNet 和 ToleranceNet）会基于这些初步估计进一步确定具体的抓取配置。这种分步处理方法确保了模型在抓取任务中具有更高的灵活性和精确性。
+返回值：
+end_points：包含新的结果的字典，主要包括以下键：
+objectness_score：物体存在性评分，形状为 (B, 2, num_seed)。
+view_score：视角评分，形状为 (B, num_seed, num_view)。
+grasp_top_view_inds：最佳抓取视角的索引，形状为 (B, num_seed)。
+grasp_top_view_score：最佳抓取视角的评分，形状为 (B, num_seed)。
+grasp_top_view_xyz：最佳抓取视角的坐标，形状为 (B, num_seed, 3)。
+grasp_top_view_rot：最佳抓取视角的旋转矩阵，形状为 (B, num_seed, 3, 3)。
+CloudCrop
+CloudCrop 模块通过聚集抓取点周围的局部特征并进行处理，生成用于抓取配置估计的特征，这些特征模拟机器人的手指抓取区域。
+返回值：
+vp_features：从点云中提取的局部特征，形状为 (B, mlps[-1], num_seed, num_depth)，其中 mlps[-1] 是最后一层 MLP 的输出维度。
+OperationNet
+OperationNet 用于估计抓取操作参数，包括抓取角度、深度和评分。
+平面内旋转角度被离散为 12 个类别，每个类别代表 30 度。
+抓取深度被离散为 4 个类别，每个类别代表一个特定的深度值。 • 每个深度类别表示抓取器相对于物体表面的不同位置，可以根据具体任务需求进行设定。
+返回值
+end_points：更新后的字典，包含以下键：
+grasp_score_pred：抓取评分的预测，形状为 (B, num_angle, num_seed, num_depth)。
+grasp_angle_cls_pred：抓取角度分类的预测，形状为 (B, num_angle, num_seed, num_depth)。
+grasp_width_pred：抓取宽度的预测，形状为 (B, num_angle, num_seed, num_depth)。
+ToleranceNet
+ToleranceNet 用于估计抓取的容忍度，表示抓取操作的鲁棒性。模块通过多层卷积网络处理输入特征，生成每个抓取点在不同角度和深度下的抓取容忍度预测结果。这些结果用于评估抓取的稳健性，帮助模型在实际操作中选择最优的抓取配置。
+pred_decode: 预测解码
+pred_decode 函数用于解码预测结果，生成最终的抓取姿态。该函数将不同预测值组合起来，生成抓取姿态，包括抓取分数、宽度、深度、旋转矩阵和抓取中心等。
+返回抓取预测结果：
+返回处理后的抓取预测结果列表，包含抓取评分、抓取宽度、抓取高度、抓取深度、旋转矩阵、抓取中心点和物体ID。
+总结
+GraspNet Baseline 模型通过两个阶段实现6D抓取位姿估计。第一阶段估计抓取视角，第二阶段生成抓取姿态。每个阶段由多个模块组成，分别负责特征提取、视角估计、局部特征提取和抓取参数估计。最终通过预测解码函数，将预测结果组合成完整的抓取姿态。这种多阶段的设计可以逐步细化抓取任务，提高模型的准确性和鲁棒性。
