@@ -62,10 +62,10 @@ class GraspNetStage2(nn.Module):
     def forward(self, end_points):
         pointcloud = end_points['input_xyz']
         if self.is_training:
-            grasp_top_views_rot, _, _, _, end_points = match_grasp_view_and_label(end_points)
-            seed_xyz = end_points['batch_grasp_point']
+            grasp_top_views_rot, _, _, _, end_points = match_grasp_view_and_label(end_points)# (B,1024,3,3)1024个种子点云对应的真实标签grouth的旋转矩阵
+            seed_xyz = end_points['batch_grasp_point'] ##(B, Ns, 3·)  (B,1024,3)  1024个种子点云对应的最接近的真实点云坐标
         else:
-            grasp_top_views_rot = end_points['grasp_top_view_rot']
+            grasp_top_views_rot = end_points['grasp_top_view_rot']  # #(B,1024,3,3),pointnet输出的将视角向量vp_xyz转换为旋转矩阵
             seed_xyz = end_points['fp2_xyz']    # fp2_xyz (B,1024,3)是pointnet输出的对应点云种子坐标
 
         vp_features = self.crop(seed_xyz, pointcloud, grasp_top_views_rot)
@@ -84,7 +84,7 @@ class GraspNet(nn.Module):
     def forward(self, end_points):
         end_points = self.view_estimator(end_points)
         if self.is_training:
-            end_points = process_grasp_labels(end_points)
+            end_points = process_grasp_labels(end_points)  #生成pointnet种子点云对应的真实点云标签
         end_points = self.grasp_generator(end_points)
         return end_points
 

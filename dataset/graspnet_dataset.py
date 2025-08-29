@@ -307,8 +307,8 @@ class GraspNetDataset(Dataset):
         ret_dict['object_poses_list'] = object_poses_list                      #物体姿态列表，列表长度为该场景物体数<9>，姿态形状为(3,4)
         ret_dict['grasp_points_list'] = grasp_points_list                      #抓取点列表长度为<9>,形状为(252,3) 252是单物体抓取点数量，3是xyz坐标
         ret_dict['grasp_offsets_list'] = grasp_offsets_list                    #抓取偏移列表长度: 9  单个偏移形状: (252, 300, 12, 4, 3)
-        ret_dict['grasp_labels_list'] = grasp_scores_list                      #抓取分数列表长度: 9  单个分数形状: (252, 300, 12, 4)
-        ret_dict['grasp_tolerance_list'] = grasp_tolerance_list                #抓取容差列表长度: 9  单个容差形状: (252, 300, 12, 4)
+        ret_dict['grasp_labels_list'] = grasp_scores_list                      #抓取分数列表长度: 9  单个分数形状: (252, 300, 12, 4)   300是预设的视角点，12是预设的旋转角度，4是预设的深度，妈的
+        ret_dict['grasp_tolerance_list'] = grasp_tolerance_list                #抓取容差列表长度: 9  单个容差形状: (252, 300, 12, 4)  
         # print("点云形状 (N,3):", ret_dict['point_clouds'].shape)  # 输出 (N, 3)
         # print("颜色形状:", ret_dict['cloud_colors'].shape)        # 应与点云形状一致
         # print("物体性标签形状:", ret_dict['objectness_label'].shape)  # 例如 (N,) 或 (N,1)
@@ -373,10 +373,34 @@ def collate_fn(batch):
     raise TypeError("batch must contain tensors, dicts or lists; found {}".format(type(batch[0])))
 
 if __name__ == "__main__":
+    #####内存占用相关代码#####
+    import psutil
+    process = psutil.Process(os.getpid())
+    mem_before = process.memory_info().rss / (1024 * 1024)
+    print(f'加载标签前内存占用: {mem_before:.2f} MB')
+    #####内存占用相关代码#####
+
+
     root = './graspnet'
     valid_obj_idxs, grasp_labels = load_grasp_labels(root)
+
+    
+    #####内存占用相关代码#####
+    mem_after = process.memory_info().rss / (1024 * 1024)
+    print(f'加载标签后内存占用: {mem_after:.2f} MB')
+    print(f'grasp_labels 大约占用了: {mem_after - mem_before:.2f} MB')
+    #####内存占用相关代码#####
+
+    
     train_dataset = GraspNetDataset(root, valid_obj_idxs, grasp_labels, split='train', remove_outlier=True, remove_invisible=True, num_points=20000)
     print(len(train_dataset))
+
+    #####内存占用相关代码#####
+    mem_after = process.memory_info().rss / (1024 * 1024)
+    print(f'加载标签后内存占用: {mem_after:.2f} MB')
+    print(f'grasp_labels 大约占用了: {mem_after - mem_before:.2f} MB')
+    #####内存占用相关代码#####
+
 
     end_points = train_dataset[233]
     cloud = end_points['point_clouds']
