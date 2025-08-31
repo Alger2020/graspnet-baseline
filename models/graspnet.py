@@ -61,6 +61,7 @@ class GraspNetStage2(nn.Module):
     
     def forward(self, end_points):
         pointcloud = end_points['input_xyz']
+        # print("形状（shape）:", pointcloud.shape)
         if self.is_training:
             grasp_top_views_rot, _, _, _, end_points = match_grasp_view_and_label(end_points)# (B,1024,3,3)1024个种子点云对应的真实标签grouth的旋转矩阵
             seed_xyz = end_points['batch_grasp_point'] ##(B, Ns, 3·)  (B,1024,3)  1024个种子点云对应的最接近的真实点云坐标
@@ -68,8 +69,9 @@ class GraspNetStage2(nn.Module):
             grasp_top_views_rot = end_points['grasp_top_view_rot']  # #(B,1024,3,3),pointnet输出的将视角向量vp_xyz转换为旋转矩阵
             seed_xyz = end_points['fp2_xyz']    # fp2_xyz (B,1024,3)是pointnet输出的对应点云种子坐标
 
-        vp_features = self.crop(seed_xyz, pointcloud, grasp_top_views_rot)
-        end_points = self.operation(vp_features, end_points)
+        #vp_features(B,256,1024,4)  这个张量为每个种子点（1024个）在每个裁剪深度下（4个）都生成了一个256维的特征向量，它编码了该局部区域的点云几何信息。
+        vp_features = self.crop(seed_xyz, pointcloud, grasp_top_views_rot)  #pointcloud(B,20000,3)
+        end_points = self.operation(vp_features, end_points)    
         end_points = self.tolerance(vp_features, end_points)
 
         return end_points
