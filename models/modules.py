@@ -215,18 +215,29 @@ class OperationNet(nn.Module):
             num_depth: [int]
                 number of gripper depth classes
     """
+    """OperationNet 模块整体概述
+        OperationNet 是抓取检测流程第二阶段的核心预测网络之一。它的主要任务是接收由 CloudCrop 模块提取出的局部点云特征，并基于这些特征来预测具体的抓取配置参数。
+        具体来说，对于每一个种子点和每一个裁剪深度，它都会预测一系列与抓取手内旋（in-plane rotation）相关的参数，包括：
+        抓取分数 (Grasp Score)：在某个特定的手内旋角度下，抓取成功的可能性有多大。
+        抓取角度分类 (Grasp Angle Classification)：从预定义的多个角度类别中，预测最合适的那个。
+        抓取宽度 (Grasp Width)：在某个特定的手内旋角度下，机械手需要张开的宽度。
+        可以把它理解为抓取检测的第二步：“在确定了接近方向后，手腕应该转多少度？这个姿态的抓取质量如何？需要张开多宽？”
+    """
     def __init__(self, num_angle, num_depth):
         # Output:
         # scores(num_angle)
         # angle class (num_angle)
         # width (num_angle)
+        #num_angle整数，定义了手内旋角度的类别数量。
+        # 在 graspnet.py 中，这个值被设为 12，意味着将 180 度（π）的范围划分成 12 个角度类别，每个类别间隔 15 度。
+        #num_depth: 整数，定义了抓取深度的类别数量，也就是 CloudCrop 模块裁剪出的圆柱体数量。在 graspnet.py 中，这个值是 4。
         super().__init__()
         self.num_angle = num_angle
         self.num_depth = num_depth
 
-        self.conv1 = nn.Conv1d(256, 128, 1)
-        self.conv2 = nn.Conv1d(128, 128, 1)
-        self.conv3 = nn.Conv1d(128, 3*num_angle, 1)
+        self.conv1 = nn.Conv1d(256, 128, 1) #将输入的 256 维特征降维到 128 维
+        self.conv2 = nn.Conv1d(128, 128, 1) #保持 128 维特征
+        self.conv3 = nn.Conv1d(128, 3*num_angle, 1) #这是最终的预测层。它将 128 维特征映射到 3 * num_angle（即 3 * 12 = 36）维。这 36 个通道包含了对三个不同任务（分数、角度、宽度）的预测，每个任务对应 num_angle 个类别。
         self.bn1 = nn.BatchNorm1d(128)
         self.bn2 = nn.BatchNorm1d(128)
 
@@ -241,17 +252,23 @@ class OperationNet(nn.Module):
             Output:
                 end_points: [dict]
         """
+        """输入 vp_features: 来自 CloudCrop 模块的输出，即每个种子点在不同裁剪深度下的局部特征。
+        维度: (B, 256, num_seed, num_depth)，其中 B 是批次大小，256 是特征维度，num_seed 是种子点数（1024），num_depth 是裁剪深度数（4）。
+        输入 end_points: 一个字典，用于收集和传递网络各部分的输出。
+        B, _, num_seed, num_depth = vp_features.size(): 从输入张量的形状中获取各个维度的大小。
+        """
         B, _, num_seed, num_depth = vp_features.size()
         vp_features = vp_features.view(B, -1, num_seed*num_depth)
         vp_features = F.relu(self.bn1(self.conv1(vp_features)), inplace=True)
         vp_features = F.relu(self.bn2(self.conv2(vp_features)), inplace=True)
         vp_features = self.conv3(vp_features)
-        vp_features = vp_features.view(B, -1, num_seed, num_depth)
+        vp_features = vp_features.view(B, -1, num_seed, num_depth)  #(B, 36, 1024, 4)
+
 
         # split prediction
-        end_points['grasp_score_pred'] = vp_features[:, 0:self.num_angle]
-        end_points['grasp_angle_cls_pred'] = vp_features[:, self.num_angle:2*self.num_angle]
-        end_points['grasp_width_pred'] = vp_features[:, 2*self.num_angle:3*self.num_angle]
+        end_points['grasp_score_pred'] = vp_features[:, 0:self.num_angle]  #维度: (B, 12, 1024, 4) end_points['grasp_score_pred']: 取出前 num_angle (12) 个通道，作为每个角度类别的抓取分数预测。
+        end_points['grasp_angle_cls_pred'] = vp_features[:, self.num_angle:2*self.num_angle] # 维度: (B, 12, 1024, 4) end_points['grasp_angle_cls_pred']: 取出中间 num_angle (12) 个通道，作为角度分类的 logits（未经 softmax 的原始分数）。
+        end_points['grasp_width_pred'] = vp_features[:, 2*self.num_angle:3*self.num_angle]  #维度: (B, 12, 1024, 4)end_points['grasp_width_pred']: 取出最后 num_angle (12) 个通道，作为每个角度类别的抓取宽度预测。
         return end_points
 
     
@@ -265,13 +282,22 @@ class ToleranceNet(nn.Module):
             num_depth: [int]
                 number of gripper depth classes
     """
+    """ToleranceNet 模块整体概述
+    ToleranceNet 是抓取检测流程第二阶段的另一个预测网络，与 OperationNet 并行工作。它的功能相对专一：预测抓取容差 (Grasp Tolerance)。
+    抓取容差是一个衡量抓取鲁棒性的指标。一个高容差的抓取意味着即使机械手的位置或姿态有轻微的扰动，抓取依然很大概率会成功。
+    在模型中，这个容差值最终会与抓取分数相乘，用于对预测出的抓取进行排序，优先选择那些既成功率高又鲁棒的抓取。
+    ToleranceNet 的网络结构与 OperationNet 非常相似，它同样接收来自 CloudCrop 的局部特征，并通过一个 MLP 来进行预测。
+
+    """
     def __init__(self, num_angle, num_depth):
         # Output:
         # tolerance (num_angle)
-        super().__init__()
-        self.conv1 = nn.Conv1d(256, 128, 1)
-        self.conv2 = nn.Conv1d(128, 128, 1)
-        self.conv3 = nn.Conv1d(128, num_angle, 1)
+        #num_angle: 整数，手内旋角度的类别数量，与 OperationNet 一致，值为 12。
+        #num_depth: 整数，抓取深度的类别数量，与 OperationNet 一致，值为 4。
+        super().__init__()   
+        self.conv1 = nn.Conv1d(256, 128, 1) #将输入的 256 维特征降维到 128 维
+        self.conv2 = nn.Conv1d(128, 128, 1) #保持 128 维特征。
+        self.conv3 = nn.Conv1d(128, num_angle, 1)#最终的预测层。它将 128 维特征映射到 num_angle（即 12）维。这 12 个通道中的每一个都对应一个角度类别的抓取容差预测值
         self.bn1 = nn.BatchNorm1d(128)
         self.bn2 = nn.BatchNorm1d(128)
 
@@ -286,11 +312,16 @@ class ToleranceNet(nn.Module):
             Output:
                 end_points: [dict]
         """
+        """
+        输入 vp_features: 来自 CloudCrop 模块的输出，与送入 OperationNet 的是同一个张量。
+        维度: (B, 256, num_seed, num_depth)，即 (B, 256, 1024, 4)。
+        输入 end_points: 用于收集网络输出的字典。
+        """
         B, _, num_seed, num_depth = vp_features.size()
         vp_features = vp_features.view(B, -1, num_seed*num_depth)
         vp_features = F.relu(self.bn1(self.conv1(vp_features)), inplace=True)
         vp_features = F.relu(self.bn2(self.conv2(vp_features)), inplace=True)
         vp_features = self.conv3(vp_features)
         vp_features = vp_features.view(B, -1, num_seed, num_depth)
-        end_points['grasp_tolerance_pred'] = vp_features
+        end_points['grasp_tolerance_pred'] = vp_features #输出维度: (B, 12, 1024, 4)
         return end_points
