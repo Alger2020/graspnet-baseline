@@ -43,7 +43,7 @@ parser.add_argument('--checkpoint_path', default=None, help='Model checkpoint pa
 parser.add_argument('--log_dir', default='log', help='Dump dir to save model checkpoint [default: log]')
 parser.add_argument('--num_point', type=int, default=20000, help='Point Number [default: 20000]')
 parser.add_argument('--num_view', type=int, default=300, help='View Number [default: 300]')
-parser.add_argument('--max_epoch', type=int, default=18, help='Epoch to run [default: 18]')
+parser.add_argument('--max_epoch', type=int, default=100, help='Epoch to run [default: 18]')
 parser.add_argument('--batch_size', type=int, default=2, help='Batch Size during training [default: 2]')
 parser.add_argument('--learning_rate', type=float, default=0.001, help='Initial learning rate [default: 0.001]')
 parser.add_argument('--weight_decay', type=float, default=0, help='Optimization L2 weight decay [default: 0]')

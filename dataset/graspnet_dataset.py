@@ -21,21 +21,6 @@ sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 from data_utils import CameraInfo, transform_point_cloud, create_point_cloud_from_depth_image,\
                             get_workspace_mask, remove_invisible_grasp_points
 
-class GraspNetDataset(Dataset):
-    def __init__(self, root, valid_obj_idxs, grasp_labels, camera='kinect', split='train', num_points=20000,
-                 remove_outlier=False, remove_invisible=True, augment=False, load_label=True):
-        assert(num_points<=50000)
-        self.root = root
-        self.split = split                                    # 数据集分割：'train', 'test', 'test_seen'等
-        self.num_points = num_points                          # 采样的点云数量 (≤20000)
-        self.remove_outlier = remove_outlier                  # 是否移除异常点
-        self.remove_invisible = remove_invisible              # 是否移除不可见点
-        self.valid_obj_idxs = valid_obj_idxs                  # 有效物体索引
-        self.grasp_labels = grasp_labels                      # 抓取标签
-        self.camera = camera                                  # 相机类型('kinect'等)
-        self.augment = augment                                # 是否数据增强
-        self.load_label = load_label                          # 是否加载标签
-        self.collision_labels = {}
 
 # 训练集: scene_0000 ~ scene_0099 (100个场景)
 # 测试集: scene_0100 ~ scene_0189 (90个场景)
@@ -65,6 +50,25 @@ class GraspNetDataset(Dataset):
  ##  augment_data() - 数据增强：
  ##  翻转: 沿YZ平面翻转
  ##  旋转: 绕Z轴旋转±30度主要方法
+
+
+
+class GraspNetDataset(Dataset):
+    def __init__(self, root, valid_obj_idxs, grasp_labels, camera='kinect', split='train', num_points=20000,
+                 remove_outlier=False, remove_invisible=True, augment=False, load_label=True):
+        assert(num_points<=50000)
+        self.root = root
+        self.split = split                                    # 数据集分割：'train', 'test', 'test_seen'等
+        self.num_points = num_points                          # 采样的点云数量 (≤20000)
+        self.remove_outlier = remove_outlier                  # 是否移除异常点
+        self.remove_invisible = remove_invisible              # 是否移除不可见点
+        self.valid_obj_idxs = valid_obj_idxs                  # 有效物体索引
+        self.grasp_labels = grasp_labels                      # 抓取标签
+        self.camera = camera                                  # 相机类型('kinect'等)
+        self.augment = augment                                # 是否数据增强
+        self.load_label = load_label                          # 是否加载标签
+        self.collision_labels = {}
+
 
         if split == 'train':
             self.sceneIds = list( range(100) )
@@ -264,7 +268,7 @@ class GraspNetDataset(Dataset):
                 continue                        # 跳过点数少于50的物体
             object_poses_list.append(poses[:, :, i])   #添加物体姿态 (3,4)
             points, offsets, scores, tolerance = self.grasp_labels[obj_idx]
-            collision = self.collision_labels[scene][i] #(Np, V, A, D)  300，12，4代表啥？？？
+            collision = self.collision_labels[scene][i] #(Np, V, A, D)  300，12，4代表啥
             # print("物体姿态的形状:", poses[:, :, i].shape)  # 输出 (3,4)
             # print("points的形状:", points.shape)      #  (N, 3)        
             # print("offsets的形状:", offsets.shape)    #  (N,300,12,4, 3)
@@ -376,8 +380,8 @@ if __name__ == "__main__":
     #####内存占用相关代码#####
     import psutil
     process = psutil.Process(os.getpid())
-    mem_before = process.memory_info().rss / (1024 * 1024)
-    print(f'加载标签前内存占用: {mem_before:.2f} MB')
+    mem_before = process.memory_info().rss / (1024 * 1024*1024)
+    print(f'加载标签前内存占用: {mem_before:.2f} GB')
     #####内存占用相关代码#####
 
 
@@ -386,31 +390,72 @@ if __name__ == "__main__":
 
     
     #####内存占用相关代码#####
-    mem_after = process.memory_info().rss / (1024 * 1024)
-    print(f'加载标签后内存占用: {mem_after:.2f} MB')
-    print(f'grasp_labels 大约占用了: {mem_after - mem_before:.2f} MB')
+    mem_after = process.memory_info().rss / (1024 * 1024*1024)
+    print(f'加载标签后内存占用: {mem_after:.2f} GB')
+    print(f'grasp_labels 大约占用了:*****{mem_after - mem_before:.2f}GB*****')
     #####内存占用相关代码#####
 
+    print("\n----------- 检查抓取标签和容差标签 -----------")
     
-    train_dataset = GraspNetDataset(root, valid_obj_idxs, grasp_labels, split='train', remove_outlier=True, remove_invisible=True, num_points=20000)
-    print(len(train_dataset))
+    # 选择一个物体ID来查看，例如物体 1
+    sample_obj_id = 2 
+    if sample_obj_id in grasp_labels:
+        # 从字典中获取该物体的标签元组
+        # grasp_labels[obj_id] = (points, offsets, scores, tolerance)
+        points, offsets, scores, tolerance = grasp_labels[sample_obj_id]
+        
+        print(f"\n--- 正在检查物体 ID: {sample_obj_id} ---")
+        
+        # 1. 抓取点 (points)
+        print(f"\n抓取点 (points) 的形状: {points.shape}")
+        print("解释: (抓取点数量, 3) -> 每个点有 (x, y, z) 坐标。这些是物体模型表面上的抓取中心点。")
+        print("前2个抓取点示例:\n", points[:2])
+        
+        # 2. 抓取偏移 (offsets)
+        print(f"\n抓取偏移 (offsets) 的形状: {offsets.shape}")
+        print("解释: (抓取点数量, 300, 12, 4, 3)")
+        print("   - 300: 预定义的抓取观察视点 (viewpoints)")
+        print("   - 12:  抓取器平面内旋转角度 (in-plane rotations), 360度/12 = 30度一个间隔")
+        print("   - 4:   抓取器深度 (gripper depths)")
+        print("   - 3:   (angle, depth, width) 具体的偏移值/参数")
+        print("单个抓取点在第一个视角、第一个旋转、第一个深度下的偏移示例:\n", offsets[0, 0, 0, 0, :])
 
-    #####内存占用相关代码#####
-    mem_after = process.memory_info().rss / (1024 * 1024)
-    print(f'加载标签后内存占用: {mem_after:.2f} MB')
-    print(f'grasp_labels 大约占用了: {mem_after - mem_before:.2f} MB')
-    #####内存占用相关代码#####
+        # 3. 抓取得分 (scores) - 这是抓取质量标签
+        print(f"\n抓取得分 (scores) 的形状: {scores.shape}")
+        print("解释: (抓取点数量, 300, 12, 4) -> 对应每个抓取姿态的质量分数（0-1）")
+        print("单个抓取点在第一个视角下的所有旋转和深度的得分示例:\n", scores[0, 0, :, :])
+
+        # 4. 抓取容差 (tolerance) - 这是容差标签
+        print(f"\n抓取容差 (tolerance) 的形状: {tolerance.shape}")
+        print("解释: (抓取点数量, 300, 12, 4) -> 对应每个抓取姿态的容差。")
+        # print("单个抓取点在第一个视角下的所有旋转和深度的容差示例:\n", tolerance[0, :, :, :])
+        print(np.min(tolerance))
+        print(np.max(tolerance))
+
+    else:
+        print(f"物体 ID {sample_obj_id} 没有有效的抓取标签。")
+
+    print("\n----------- 检查完毕 -----------")
+    
+    # train_dataset = GraspNetDataset(root, valid_obj_idxs, grasp_labels, split='train', remove_outlier=True, remove_invisible=True, num_points=20000)
+    # print(len(train_dataset))
+
+    # #####内存占用相关代码#####
+    # mem_after = process.memory_info().rss / (1024 * 1024)
+    # print(f'加载标签后内存占用: {mem_after:.2f} MB')
+    # print(f'grasp_labels 大约占用了: {mem_after - mem_before:.2f} MB')
+    # #####内存占用相关代码#####
 
 
-    end_points = train_dataset[233]
-    cloud = end_points['point_clouds']
-    seg = end_points['objectness_label']
-    print(cloud.shape)
-    print(cloud.dtype)
-    print(cloud[:,0].min(), cloud[:,0].max())
-    print(cloud[:,1].min(), cloud[:,1].max())
-    print(cloud[:,2].min(), cloud[:,2].max())
-    print(seg.shape)
-    print((seg>0).sum())
-    print(seg.dtype)
-    print(np.unique(seg))
+    # end_points = train_dataset[233]
+    # cloud = end_points['point_clouds']
+    # seg = end_points['objectness_label']
+    # print(cloud.shape)
+    # print(cloud.dtype)
+    # print(cloud[:,0].min(), cloud[:,0].max())
+    # print(cloud[:,1].min(), cloud[:,1].max())
+    # print(cloud[:,2].min(), cloud[:,2].max())
+    # print(seg.shape)
+    # print((seg>0).sum())
+    # print(seg.dtype)
+    # print(np.unique(seg))

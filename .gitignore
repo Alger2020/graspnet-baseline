@@ -16,3 +16,4 @@ logs
 dataset/tolerance
 dataset/do/** 
 dataset/graspnet/** 
+*.pdf
