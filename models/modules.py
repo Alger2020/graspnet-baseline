@@ -68,7 +68,7 @@ class ApproachNet(nn.Module):
         features = self.conv3(features) #output:(B,302,1024) 
         objectness_score = features[:, :2, :] # (B, 2, 1024)将 (B, 302, 1024) 的输出张量进行拆分,前2个通道代表每个点是“背景”和“物体”的分数。
         view_score = features[:, 2:2+self.num_view, :].transpose(1,2).contiguous() # (B, 1024, 300)将 (B, 302, 1024) 的输出张量进行拆分，后300个通道代表每个点在300个预定义视角下的抓取质量分数。.transpose(1,2) 是为了将形状变为 (B, num_seed, num_view)，方便后续处理。
-        end_points['objectness_score'] = objectness_score #（B，2，1024）,2个通道应该是代表该点可不可以抓取，而不是什么"背景""物体"的分数
+        end_points['objectness_score'] = objectness_score #（B，2，1024）,2个通道应该是代表"背景""物体"的分数
         end_points['view_score'] = view_score #(B, 1024, 300)300个通道代表每个点在300个预定义视角下的抓取质量分数。
 
         # print(view_score.min(), view_score.max(), view_score.mean())

@@ -70,7 +70,7 @@ class GraspNetStage2(nn.Module):
             seed_xyz = end_points['fp2_xyz']    # fp2_xyz (B,1024,3)是pointnet输出的对应点云种子坐标
 
         #vp_features(B,256,1024,4)  这个张量为每个种子点（1024个）在每个裁剪深度下（4个）都生成了一个256维的特征向量，它编码了该局部区域的点云几何信息。
-        vp_features = self.crop(seed_xyz, pointcloud, grasp_top_views_rot)  #pointcloud(B,20000,3)
+        vp_features = self.crop(seed_xyz, pointcloud, grasp_top_views_rot)  #pointcloud(B,20000,3)  //md这里都是用非1024个点的预测接近向量，用的是真实的。为了解耦两阶段训练。
         end_points = self.operation(vp_features, end_points)    
         end_points = self.tolerance(vp_features, end_points)
 

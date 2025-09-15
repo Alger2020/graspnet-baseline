@@ -204,7 +204,7 @@ def train_one_epoch():
     bnm_scheduler.step() # decay BN momentum 更新BN动量
     # set model to training mode
     net.train()# 将模型设置为训练模式
-    #遍历训练数据加载器的每个批次
+    #遍历训练数据加载器的每个批次   我可以在这里设置看看，cpu和Gpu的内存变化
     for batch_idx, batch_data_label in enumerate(TRAIN_DATALOADER):
         for key in batch_data_label:
             if 'list' in key:

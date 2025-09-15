@@ -98,7 +98,7 @@ def process_grasp_labels(end_points):
         grasp_tolerance_merged = torch.cat(grasp_tolerance_merged, dim=0) #(Np', V, A, D)
 
         # 为每个种子点分配标签 (核心步骤)
-        # 使用KNN找到每个种子点(seed_xyz)在所有真实抓取点(grasp_points_merged)中最近的那个
+        # 使用KNN找到每个种子点(seed_xyz)在所有真实抓取点(grasp_points_merged)中最近的那个  呦西，因为取样的1024个点是随机的
         # compute nearest neighbors
         seed_xyz_ = seed_xyz.transpose(0, 1).contiguous().unsqueeze(0) #(1, 3, Ns)
         grasp_points_merged_ = grasp_points_merged.transpose(0, 1).contiguous().unsqueeze(0) #(1, 3, Np')
@@ -143,7 +143,7 @@ def process_grasp_labels(end_points):
 
     #为1024个种子点中的每一个，都赋予了一个完整的抓取标签。
     end_points['batch_grasp_point'] = batch_grasp_points      #(B, Ns, 3·)  (B,1024,3)  1024个种子点云对应的最接近的真实点云坐标
-    end_points['batch_grasp_view'] = batch_grasp_views     #(B, Ns, V, 3)  (B,1024,300,3)  1024个种子点云对应的最真实点云坐标的视角接近向量
+    end_points['batch_grasp_view'] = batch_grasp_views     #(B, Ns, V, 3)  (B,1024,300,3)  1024个种子点云对应的最真实点云坐标的视角接近向量,接近向量是在3维空间中的，一个方向向量用(x,y,z)三个坐标来表示。
     end_points['batch_grasp_view_rot'] = batch_grasp_views_rot     #(B, Ns, V, 3, 3) (B,1024,300,3,3) 对应的接近向量转换的旋转矩阵
     end_points['batch_grasp_label'] = batch_grasp_labels     #(B, Ns, V, A, D) (B,1024,300,12,4)  
     end_points['batch_grasp_offset'] = batch_grasp_offsets     #(B, Ns, V, A, D, 3) (B,1024,300,12,4,3) ,这个3有宽度的内容
